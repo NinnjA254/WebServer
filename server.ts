@@ -14,6 +14,31 @@ async function newConn(socket: net.Socket) {
 }
 server.on('connection', newConn)
 
+interface DynBuf {
+	data: Buffer
+	length: number
+}
+function bufPush(buf: DynBuf, data: Buffer) {
+	const newLen = buf.length + data.length
+	if (newLen > buf.data.length) {
+		let cap = Math.max(buf.data.length, 32);
+		while (cap < newLen) {
+			cap *= 2
+		}
+		const grown = Buffer.alloc(cap)
+		buf.data.copy(grown, 0, 0)
+		buf.data = grown
+	}
+	data.copy(buf.data, buf.length, 0)
+	buf.length = newLen
+}
+
+function bufPop(buf: DynBuf, len: number) {
+	buf.data.copyWithin(0, len, buf.length)
+	buf.length -= len
+}
+
+//promise based wrapper  for socket api
 interface TCPConn {
 	socket: net.Socket
 	err: null | Error
@@ -34,7 +59,7 @@ function soInit(socket: net.Socket) {
 		console.assert(conn.reader)
 		conn.socket.pause()
 
-		conn.reader.resolve(data)
+		conn.reader!.resolve(data)
 		conn.reader = null
 	})
 	conn.socket.on('error', (err: Error) => {
@@ -62,7 +87,7 @@ function soRead(conn: TCPConn): Promise<Buffer> {
 			return
 		}
 		if (conn.ended) {
-			conn.reader.resolve(Buffer.from(''))
+			resolve(Buffer.from(''))
 			return
 		}
 		conn.reader = { resolve, reject }
@@ -77,7 +102,7 @@ function soWrite(conn: TCPConn, data: Buffer): Promise<void> {
 			reject(conn.err)
 			return
 		}
-		conn.socket.write(data, (err?: Error) => {
+		conn.socket.write(data, (err?: Error | null) => {
 			if (err) reject(err)
 			else resolve()
 		})
@@ -86,13 +111,35 @@ function soWrite(conn: TCPConn, data: Buffer): Promise<void> {
 
 async function serveClient(socket: net.Socket) {
 	const conn = soInit(socket)
+	const stream: DynBuf = { length: 0, data: Buffer.alloc(0) }
 	while (true) {
-		const data = await soRead(conn)
-		if (data.length === 0) {
-			console.log('connection closed')
-			break;
+		const msg = cutMessage(stream)
+		if (!msg) {
+			const data = await soRead(conn)
+			if (data.length === 0) {
+				console.log('FIN!')
+				break
+			}
+			bufPush(stream, data)
+			continue
 		}
-		console.log('data', data)
-		await soWrite(conn, Buffer.from('echo: ' + data))
+		//type Muthiti to terminate connection
+		if (msg.toString().trim() === 'Muthiti!') {
+			await soWrite(conn, Buffer.from('Muthiti uu twonane ivinda yingi!\n'));
+			socket.destroy();
+			return;
+		} else {
+			const reply = Buffer.concat([Buffer.from('Echo: '), msg]);
+			await soWrite(conn, reply);
+		}
 	}
+}
+function cutMessage(buf: DynBuf): null | Buffer {
+	const idx = buf.data.subarray(0, buf.length).indexOf('\n')
+	if (idx < 1) return null //no new line so no complete message yet
+
+	//get message and pop it off the buffer
+	const msg = Buffer.from(buf.data.subarray(0, idx + 1))
+	bufPop(buf, idx + 1)
+	return msg
 }
