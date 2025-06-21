@@ -1,10 +1,10 @@
 import * as net from 'net'
 
 /**
- * async wrapper for `net.Socket`.
+ * Async wrapper for `net.Socket`.
  * Use soInit to get a `TCPConn` from `net.Socket`,
  */
-interface TCPConn {
+type TCPConn = {
 	socket: net.Socket
 	err: null | Error
 	ended: boolean
@@ -50,7 +50,7 @@ export function soInit(socket: net.Socket) {
 /**
  * Read from a `TCPConn`.
  * Each read corresponds to a single 'data' event
- * Returns an empty string on end of data
+ * Returns an empty buffer on end of data
  */
 export function soRead(conn: TCPConn): Promise<Buffer> {
 	console.assert(!conn.reader)
@@ -70,7 +70,7 @@ export function soRead(conn: TCPConn): Promise<Buffer> {
 
 /**
  * Write to a `TCPConn`.
- * writes `data` to the socket of course
+ * Writes `data` to the socket of course
  */
 export function soWrite(conn: TCPConn, data: Buffer): Promise<void> {
 	console.assert(data.length > 0)
